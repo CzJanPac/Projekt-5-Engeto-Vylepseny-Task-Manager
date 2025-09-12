@@ -8,11 +8,13 @@ email: czjanpac@gmail.com
 import mysql.connector
 from mysql.connector import Error
 
+# Název databáze používané pro ukládání úkolů
 DB_NAME = "task_manager"
 
-# --- Připojení k DB a vytvoření tabulky ---
+# --- Připojení k MySQL a databázi  ---
 def pripojeni_db():
     try:
+        # Připojení k serveru pro případné vytvoření databáze
         conn = mysql.connector.connect(
             host="localhost",
             user="root",
@@ -24,6 +26,7 @@ def pripojeni_db():
         cursor.close()
         conn.close()
 
+        # Připojení přímo k databázi 
         conn = mysql.connector.connect(
             host="localhost",
             user="root",
@@ -36,6 +39,7 @@ def pripojeni_db():
         print(f"Nastala chyba při práci s databází: {e}")
         return None, None
 
+# --- Vytvoření tabulky pro úkoly ---
 def vytvoreni_tabulky():
     conn, cursor = pripojeni_db()
     if not conn:
@@ -57,14 +61,22 @@ def vytvoreni_tabulky():
         cursor.close()
         conn.close()
 
-# --- CRUD funkce ---
+# ---------- CRUD funkce pracující s databází ----------
+# Tyto funkce implementují základní operace nad tabulkou 'ukoly':
+# 1) pridat_ukol(nazev, popis)       - vloží nový úkol, kontroluje vstupy
+# 2) zobrazit_ukoly(filtr=None)      - načte úkoly, umožňuje volit filtr podle stavu
+# 3) aktualizovat_ukol(id, stav)     - změní stav existujícího úkolu, validuje ID a stav
+# 4) odstranit_ukol(id)               - odstraní úkol podle ID, vrací zprávu o výsledku
+
 def pridat_ukol(nazev, popis):
+    # Ověření, že nejsou zadané prázdné vstupy
     if not nazev or not popis:
         return False, "Název i popis úkolu musí být vyplněny."
     conn, cursor = pripojeni_db()
     if not conn:
         return False, "Nepodařilo se připojit k databázi."
     try:
+        # Vložení nového úkolu
         cursor.execute(
             "INSERT INTO ukoly (nazev, popis) VALUES (%s, %s)",
             (nazev, popis)
@@ -82,6 +94,7 @@ def zobrazit_ukoly(filtr=None):
     if not conn:
         return False, "Nepodařilo se připojit k databázi.", []
     try:
+        # Filtrovaný výběr podle stavu úkolu
         if filtr:
             placeholders = ', '.join(['%s'] * len(filtr))
             query = f"""
@@ -92,6 +105,8 @@ def zobrazit_ukoly(filtr=None):
             cursor.execute(query, tuple(filtr))
         else:
             cursor.execute("SELECT id, nazev, popis, stav, datum_vytvoreni FROM ukoly")
+
+        # Seznam tuple: (id, nazev, popis, stav, datum_vytvoreni)
         rows = cursor.fetchall()
         if not rows:
             return True, "Seznam úkolů je prázdný.", []
@@ -103,17 +118,21 @@ def zobrazit_ukoly(filtr=None):
         conn.close()
 
 def aktualizovat_ukol(cislo_ukolu, novy_stav):
+    # Kontrola validního stavu
     if novy_stav not in ('probiha', 'hotovo'):
         return False, "Neplatný stav."
     conn, cursor = pripojeni_db()
     if not conn:
         return False, "Nepodařilo se připojit k databázi."
     try:
+        # Získání názvu úkolu pro zpětnou zprávu
         cursor.execute("SELECT nazev FROM ukoly WHERE id=%s", (cislo_ukolu,))
         row = cursor.fetchone()
         if not row:
             return False, f"Úkol s číslem {cislo_ukolu} neexistuje."
         nazev_ukolu = row[0]
+
+        # Aktualizace stavu
         cursor.execute("UPDATE ukoly SET stav=%s WHERE id=%s", (novy_stav, cislo_ukolu))
         conn.commit()
         return True, f"Úkol číslo {cislo_ukolu} ('{nazev_ukolu}') byl aktualizován na stav '{novy_stav}'.\n"
@@ -128,11 +147,14 @@ def odstranit_ukol(cislo_ukolu):
     if not conn:
         return False, "Nepodařilo se připojit k databázi."
     try:
+        # Získání názvu úkolu pro zpětnou zprávu
         cursor.execute("SELECT nazev FROM ukoly WHERE id=%s", (cislo_ukolu,))
         row = cursor.fetchone()
         if not row:
             return False, f"Úkol s číslem {cislo_ukolu} neexistuje."
         nazev_ukolu = row[0]
+
+        # Odstranění z tabulky
         cursor.execute("DELETE FROM ukoly WHERE id=%s", (cislo_ukolu,))
         conn.commit()
         return True, f"Úkol číslo {cislo_ukolu} ('{nazev_ukolu}') byl odstraněn.\n"
@@ -144,7 +166,7 @@ def odstranit_ukol(cislo_ukolu):
 
 # --- Funkce menu ---
 def pridani_ukolu_menu():
-    while True:
+    while True:   # Opakování pro případ chybného vstupu
         nazev = input("Zadejte název úkolu: ").strip()
         if len(nazev) > 255:
             print("Název úkolu je příliš dlouhý (max. 255 znaků). Zadejte ho prosím znovu.\n")
@@ -156,20 +178,23 @@ def pridani_ukolu_menu():
             break
 
 def zobrazeni_ukolu_menu():
+    # Mapování stavů pro výpis s diakritikou
     stav_map = {
         'nezahajeno': 'nezahájeno',
         'probiha': 'probíhá',
         'hotovo': 'hotovo'
     }
 
+    # Zobrazení všech úkolů se stavem - nezahájené a probíhající
     success, msg, rows = zobrazit_ukoly(filtr=['nezahajeno', 'probiha'])
     print(msg)
     for idx, row in enumerate(rows, start=1):
+        # row = (id, nazev, popis, stav, datum_vytvoreni)
         stav_text = stav_map.get(row[3], row[3])
         print(f"{idx}. {row[1]} - {row[2]} | Stav: {stav_text} | Vytvořeno: {row[4]}")
     print()
 
-    while True:  # Opakovat, dokud uživatel nezadá platnou volbu
+    while True:  # Opakování neplatných vstupů pro filtrování
         volba_filtru = input("Zadejte 'f' pro otevření filtrování nebo stiskněte Enter pro návrat do menu: ").strip().lower()
         print()
         if volba_filtru == 'f':
@@ -194,6 +219,7 @@ def zobrazeni_ukolu_menu():
                     print("Neplatná volba, zadejte novou volbu.\n")
                     continue
 
+                # Zobrazení filtrovaných úkolů
                 success, msg, rows = zobrazit_ukoly(filtr=stav_filter)
                 print(msg)
                 for idx, row in enumerate(rows, start=1):
@@ -201,9 +227,9 @@ def zobrazeni_ukolu_menu():
                     print(f"{idx}. {row[1]} - {row[2]} | Stav: {stav_text} | Vytvořeno: {row[4]}")
                 print()
                 break
-            break  # Ukončí hlavní while po zobrazení filtrovaných úkolů
+            break
         elif volba_filtru == '':
-            break  # Enter vrátí do hlavního menu
+            break  # Návrat do hlavního menu
         else:
             print("Neplatná volba.\n")
 
@@ -218,18 +244,19 @@ def aktualizace_ukolu_menu():
     while True:
         success, msg, rows = zobrazit_ukoly()
         if not rows:
-            print("Seznam úkolů je prázdný, nelze provést akci.")
-            print()
+            print("Seznam úkolů je prázdný, nelze provést akci.\n")
             break
         print(msg)
         for idx, row in enumerate(rows, start=1):
+            # row = (id, nazev, popis, stav, datum_vytvoreni)
             stav_text = stav_map.get(row[3], row[3])
             print(f"{idx}. {row[1]} - Stav: {stav_text}")
+
         cislo_ukolu = input("Zadejte číslo úkolu k aktualizaci: ").strip()
         if not cislo_ukolu.isdigit() or int(cislo_ukolu) < 1 or int(cislo_ukolu) > len(rows):
             print("Úkol s tímto číslem neexistuje.\n")
             continue
-        skutecne_id = rows[int(cislo_ukolu)-1][0]
+        skutecne_id = rows[int(cislo_ukolu)-1][0]  # ID vybraného úkolu
 
         print()
         print("Vyberte nový stav:")
@@ -243,6 +270,7 @@ def aktualizace_ukolu_menu():
         else:
             print("Neplatná volba stavu.\n")
             continue
+
         success, msg = aktualizovat_ukol(skutecne_id, novy_stav)
         print(msg)
         break
@@ -257,18 +285,20 @@ def odstraneni_ukolu_menu():
     while True:
         success, msg, rows = zobrazit_ukoly()
         if not rows:
-            print("Seznam úkolů je prázdný, nelze provést akci.")
-            print()
+            print("Seznam úkolů je prázdný, nelze provést akci.\n")
             break
         print(msg)
         for idx, row in enumerate(rows, start=1):
+            # row = (id, nazev, popis, stav, datum_vytvoreni)
             stav_text = stav_map.get(row[3], row[3])
             print(f"{idx}. {row[1]} - Stav: {stav_text}")
+
         cislo_ukolu = input("Zadejte číslo úkolu k odstranění: ").strip()
         if not cislo_ukolu.isdigit() or int(cislo_ukolu) < 1 or int(cislo_ukolu) > len(rows):
             print("Úkol s tímto číslem neexistuje.\n")
             continue
-        skutecne_id = rows[int(cislo_ukolu)-1][0]
+        skutecne_id = rows[int(cislo_ukolu)-1][0]  # ID vybraného úkolu
+
         success, msg = odstranit_ukol(skutecne_id)
         print(msg)
         break
